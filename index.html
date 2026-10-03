@@ -445,6 +445,7 @@ const SPIN_TARGET = 360, SPIN_TOLERANCE = 45;
 function spinIsOk(degrees) { return Math.abs(Math.abs(degrees) - SPIN_TARGET) <= SPIN_TOLERANCE; }
 
 // Integrates rotation rate (deg/s, around the vertical axis of a phone lying flat) until the phone comes to rest.
+// A real spin (90°+) ends 0.6 s after the phone stops; a tiny wobble gets 2 s before it counts as a failed spin.
 function createSpinDetector(onProgress, onDone) {
   let total = 0, last = null, started = false, calmSince = null, done = false;
   return function feed(rate, t) {
@@ -456,7 +457,7 @@ function createSpinDetector(onProgress, onDone) {
     if (Math.abs(rate) > 25) { started = true; calmSince = null; }
     else if (started) {
       if (calmSince === null) calmSince = t;
-      else if (t - calmSince >= 600) { done = true; onDone(total); return; }
+      else if (t - calmSince >= (Math.abs(total) >= 90 ? 600 : 2000)) { done = true; onDone(total); return; }
     }
     onProgress(total);
   };
@@ -478,26 +479,53 @@ async function phoneSpin() {
   const name = state.players[state.order[state.pos]].name;
   const live = el('div', { class: 'result', text: '0°' });
   const status = el('p', { class: 'muted', text: permissionDenied ? 'Geen toegang tot de bewegingssensor.' : 'Wachten op de bewegingssensor…' });
+  const startBtn = el('button', { class: 'primary', text: 'Start meting', hidden: '' });
   const fallback = el('div', { class: 'buttons', hidden: '' });
-  let sensorSeen = false, listener = null, simTimer = null, close = () => {};
+  let sensorSeen = false, listener = null, simTimer = null, countTimer = null, close = () => {};
+  let feed = null, flat = true;   // feed is only set while measuring
 
   const outcome = await showModal([
     el('h2', { text: '📱 Telefoon-spin' }),
-    el('p', { text: `${name}, leg je telefoon plat op tafel en laat hem één perfect rondje draaien (360°).` }),
-    live, status, fallback,
+    el('p', { text: `${name}, tik op "Start meting", leg je telefoon plat op tafel en laat hem één perfect rondje draaien (360°).` }),
+    live, status, startBtn, fallback,
   ], [{ label: 'Annuleren', cls: 'ghost', value: { cancel: true } }], c => {
     close = c;
-    const feed = createSpinDetector(
-      deg => { live.textContent = `${Math.round(Math.abs(deg))}°`; },
-      deg => close({ degrees: deg }));
+
+    // Measuring only starts after a countdown, so putting the phone down isn't counted as a spin.
+    const beginMeasure = () => {
+      live.textContent = '0°';
+      feed = createSpinDetector(
+        deg => { live.textContent = `${Math.round(Math.abs(deg))}°`; },
+        deg => close({ degrees: deg }));
+      status.textContent = 'Draai nu één rondje!';
+    };
 
     listener = e => {
       const r = e.rotationRate;
       if (!r || r.alpha == null) return;
-      if (!sensorSeen) { sensorSeen = true; fallback.hidden = true; status.textContent = 'Sensor actief: draai je telefoon!'; }
+      if (!sensorSeen) {
+        sensorSeen = true; fallback.hidden = true; startBtn.hidden = false;
+        status.textContent = 'Sensor gevonden. Tik op "Start meting".';
+      }
+      const g = e.accelerationIncludingGravity;
+      if (g && g.z != null) flat = Math.abs(g.z) > 7;   // lying flat: gravity is almost all on the z axis
+      if (!feed) return;
+      if (!flat) { status.textContent = 'Leg je telefoon plat op tafel!'; return; }
       feed(r.alpha, e.timeStamp || performance.now());
     };
     if (!permissionDenied) window.addEventListener('devicemotion', listener);
+
+    startBtn.addEventListener('click', () => {
+      startBtn.hidden = true;
+      let n = 3;
+      status.textContent = `Leg je telefoon plat neer… ${n}`;
+      countTimer = setInterval(() => {
+        n--;
+        if (n > 0) { status.textContent = `Leg je telefoon plat neer… ${n}`; return; }
+        clearInterval(countTimer); countTimer = null;
+        beginMeasure();
+      }, 1000);
+    });
 
     // No sensor (e.g. a PC): offer manual approval and a simulation so the game can still be tested.
     setTimeout(() => {
@@ -508,12 +536,14 @@ async function phoneSpin() {
 
     const simulate = deg => {
       if (simTimer) return;
+      beginMeasure();
+      const f = feed;
       let t = performance.now(), rotated = 0, calm = 0;
       const rate = deg > 0 ? 240 : 0;
       simTimer = setInterval(() => {
         t += 16;
-        if (rotated < deg) { rotated += rate * 0.016; feed(rate, t); }
-        else { calm += 16; feed(0, t); if (calm > 1000) clearInterval(simTimer); }
+        if (rotated < deg) { rotated += rate * 0.016; f(rate, t); }
+        else { calm += 16; f(0, t); if (calm > 2500) clearInterval(simTimer); }
       }, 16);
     };
     fallback.append(
@@ -524,6 +554,7 @@ async function phoneSpin() {
     );
   });
 
+  if (countTimer) clearInterval(countTimer);
   if (listener) window.removeEventListener('devicemotion', listener);
   if (simTimer) clearInterval(simTimer);
 
