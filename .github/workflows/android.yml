@@ -35,12 +35,7 @@ jobs:
       - name: Icoon en schermstand instellen
         run: |
           RES=android/app/src/main/res
-          for pair in mdpi:48:108 hdpi:72:162 xhdpi:96:216 xxhdpi:144:324 xxxhdpi:192:432; do
-            IFS=: read d legacy fg <<< "$pair"
-            convert icons/icon-512.png -resize ${legacy}x${legacy} $RES/mipmap-$d/ic_launcher.png
-            convert icons/icon-512.png -resize ${legacy}x${legacy} $RES/mipmap-$d/ic_launcher_round.png
-            convert icons/icon-maskable-512.png -resize ${fg}x${fg} $RES/mipmap-$d/ic_launcher_foreground.png
-          done
+          cp -r icons/android/. $RES/
           sed -i 's/#FFFFFF/#1d4d39/' $RES/values/ic_launcher_background.xml
           sed -i 's/android:configChanges=/android:screenOrientation="portrait" android:configChanges=/' android/app/src/main/AndroidManifest.xml
 
