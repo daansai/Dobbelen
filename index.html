@@ -193,19 +193,25 @@ function dieEl(n, small = false) {
 function slokken(n) { return `${n} ${n === 1 ? 'slok' : 'slokken'}`; }
 
 /* ---------- Modal ---------- */
-function showModal(content, buttons) {
+// onOpen(close) hands the caller a function to close the modal programmatically.
+function showModal(content, buttons, onOpen) {
   return new Promise(resolve => {
+    let finished = false;
+    const close = value => {
+      if (finished) return;
+      finished = true;
+      $('overlay').hidden = true;
+      resolve(value);
+    };
     const modal = $('modal');
     modal.replaceChildren(...content);
     const box = el('div', { class: 'buttons' });
     for (const b of buttons) {
-      box.append(el('button', {
-        class: b.cls || '', text: b.label,
-        onclick: () => { $('overlay').hidden = true; resolve(b.value); },
-      }));
+      box.append(el('button', { class: b.cls || '', text: b.label, onclick: () => close(b.value) }));
     }
     modal.append(box);
     $('overlay').hidden = false;
+    if (onOpen) onOpen(close);
   });
 }
 
@@ -294,10 +300,10 @@ function showRules() {
     el('p', { text: 'Iedereen gooit om de beurt met 2 dobbelstenen. Je mag maximaal 3x gooien: na elke worp pas je, of je gooit opnieuw. Na de derde worp moet je het resultaat houden. Wie aan het eind van de ronde de laagste worp heeft, drinkt.' }),
     el('h3', { text: 'Volgorde (hoog naar laag)' }),
     el('p', { text: 'Mex (2 en 1) › dubbel (66 hoogst, 11 laagst) › overige worpen als tweecijferig getal met het hoogste cijfer eerst (5 en 3 = 53).' }),
-    el('h3', { text: '32' }), el('p', { text: 'Je mag 2 slokken uitdelen.' }),
-    el('h3', { text: '31' }), el('p', { text: 'Je battlet met een willekeurige speler. Jullie gooien allebei; wie het hoogste gooit moet drinken.' }),
-    el('h3', { text: 'Dubbel 1 = 100 man' }), el('p', { text: 'Je wordt de 100 man. Elke keer dat iemand een honderdtal gooit (dubbel: 11 = 100, 22 = 200 … 66 = 600), moet de 100 man dat aantal slokken drinken. 500 = 5 slokken.' }),
-    el('h3', { text: '65' }), el('p', { text: 'Je kiest: 65 als score houden, of de telefoon op tafel in een (bijna) perfect rondje laten draaien. Lukt dat, dan draaien de dobbelstenen om (6 en 5 worden 1 en 2) en heb je Mex. Lukt het niet, dan blijft het 65.' }),
+    el('h3', { text: '32' }), el('p', { text: 'Je deelt 2 slokken uit aan een speler naar keuze en gooit daarna opnieuw (weer 3 worpen).' }),
+    el('h3', { text: '31' }), el('p', { text: 'Je battlet met een willekeurige speler. Jullie gooien allebei; wie het hoogste gooit moet drinken. Daarna gooi je opnieuw (weer 3 worpen).' }),
+    el('h3', { text: 'Dubbel 1 = 100 man' }), el('p', { text: 'Je wordt de 100 man. Is er al een 100 man, dan neem je het over en hoeft de oude niet te drinken. Elke keer dat iemand daarna een hoger honderdtal gooit (22 = 200 … 66 = 600), moet de 100 man dat aantal slokken drinken. 500 = 5 slokken.' }),
+    el('h3', { text: '65' }), el('p', { text: 'Je kiest: 65 als score houden, of de telefoon-spin. Leg je telefoon plat op tafel en laat hem één (bijna) perfect rondje draaien; het spel meet met de bewegingssensor of het gelukt is (360°, ruim 45° speling). Lukt dat, dan draaien de dobbelstenen om (6 en 5 worden 1 en 2) en heb je Mex. Lukt het niet, dan blijft het 65.' }),
   );
   return showModal([c], [{ label: 'Sluiten', cls: 'primary', value: null }]);
 }
@@ -377,6 +383,22 @@ async function roll() {
   }
   state.dice = [rnd(), rnd()];
   renderDice(state.dice);
+  const v = scoreOf(state.dice);
+  if (v === 31 || v === 32) {
+    // 31/32 can't be kept: do the effect, then the player starts over with a fresh throw.
+    $('result').textContent = labelOf(state.dice);
+    addLog(`${state.players[state.order[state.pos]].name} gooit ${v}.`);
+    await sleep(700);
+    await (v === 32 ? effect32 : effect31)(state.order[state.pos]);
+    state.throws = 0;
+    state.dice = null;
+    $('result').textContent = '';
+    $('throws').textContent = '';
+    $('hint').textContent = `${v}! Gooi opnieuw.`;
+    setActions([{ label: '🎲 Gooi opnieuw', cls: 'primary', onClick: roll }]);
+    state.busy = false;
+    return;
+  }
   presentThrow();
   state.busy = false;
 }
@@ -387,10 +409,8 @@ function presentThrow() {
   $('result').textContent = labelOf(dice);
   $('throws').textContent = `Worp ${state.throws} van 3`;
   const hints = [];
-  if (v === 32) hints.push('32: je mag 2 slokken uitdelen.');
-  if (v === 31) hints.push('31: je gaat battlen met een willekeurige speler.');
   if (dice[0] === 1 && dice[1] === 1) hints.push('Dubbel 1: je wordt de 100 man!');
-  else if (isDouble(dice)) hints.push(`${v}: de 100 man drinkt ${slokken(dice[0])}.`);
+  else if (isDouble(dice) && state.hundred !== null) hints.push(`${v}: de 100 man drinkt ${slokken(dice[0])}.`);
   if (v === 65) hints.push('65: houden, of de telefoon-spin proberen voor Mex.');
   $('hint').textContent = hints.join(' ');
 
@@ -401,18 +421,107 @@ function presentThrow() {
   setActions(buttons);
 }
 
+/* ---------- Phone spin (sensor check) ---------- */
+const SPIN_TARGET = 360, SPIN_TOLERANCE = 45;
+
+function spinIsOk(degrees) { return Math.abs(Math.abs(degrees) - SPIN_TARGET) <= SPIN_TOLERANCE; }
+
+// Integrates rotation rate (deg/s, around the vertical axis of a phone lying flat) until the phone comes to rest.
+function createSpinDetector(onProgress, onDone) {
+  let total = 0, last = null, started = false, calmSince = null, done = false;
+  return function feed(rate, t) {
+    if (done) return;
+    if (last === null) { last = t; return; }
+    const dt = Math.min((t - last) / 1000, 0.2);
+    last = t;
+    if (Math.abs(rate) > 10) total += rate * dt;
+    if (Math.abs(rate) > 25) { started = true; calmSince = null; }
+    else if (started) {
+      if (calmSince === null) calmSince = t;
+      else if (t - calmSince >= 600) { done = true; onDone(total); return; }
+    }
+    onProgress(total);
+  };
+}
+
 async function phoneSpin() {
   if (state.busy) return;
   state.busy = true;
   setActions([]);
+
+  // iOS asks for motion permission; this must happen directly in the click handler.
+  let permissionDenied = false;
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      permissionDenied = (await DeviceMotionEvent.requestPermission()) !== 'granted';
+    }
+  } catch (e) { permissionDenied = true; }
+
   const name = state.players[state.order[state.pos]].name;
-  const ok = await showModal([
+  const live = el('div', { class: 'result', text: '0°' });
+  const status = el('p', { class: 'muted', text: permissionDenied ? 'Geen toegang tot de bewegingssensor.' : 'Wachten op de bewegingssensor…' });
+  const fallback = el('div', { class: 'buttons', hidden: '' });
+  let sensorSeen = false, listener = null, simTimer = null, close = () => {};
+
+  const outcome = await showModal([
     el('h2', { text: '📱 Telefoon-spin' }),
-    el('p', { text: `${name}, leg je telefoon op tafel en gooi hem in een (bijna) perfect rondje. Is het gelukt?` }),
-  ], [
-    { label: 'Gelukt: Mex!', cls: 'primary', value: true },
-    { label: 'Mislukt: 65 blijft', cls: 'danger', value: false },
-  ]);
+    el('p', { text: `${name}, leg je telefoon plat op tafel en laat hem één perfect rondje draaien (360°).` }),
+    live, status, fallback,
+  ], [{ label: 'Annuleren', cls: 'ghost', value: { cancel: true } }], c => {
+    close = c;
+    const feed = createSpinDetector(
+      deg => { live.textContent = `${Math.round(Math.abs(deg))}°`; },
+      deg => close({ degrees: deg }));
+
+    listener = e => {
+      const r = e.rotationRate;
+      if (!r || r.alpha == null) return;
+      if (!sensorSeen) { sensorSeen = true; fallback.hidden = true; status.textContent = 'Sensor actief: draai je telefoon!'; }
+      feed(r.alpha, e.timeStamp || performance.now());
+    };
+    if (!permissionDenied) window.addEventListener('devicemotion', listener);
+
+    // No sensor (e.g. a PC): offer manual approval and a simulation so the game can still be tested.
+    setTimeout(() => {
+      if (sensorSeen) return;
+      status.textContent = 'Geen bewegingssensor gevonden (pc?). Kies hieronder.';
+      fallback.hidden = false;
+    }, permissionDenied ? 0 : 1500);
+
+    const simulate = deg => {
+      if (simTimer) return;
+      let t = performance.now(), rotated = 0, calm = 0;
+      const rate = deg > 0 ? 240 : 0;
+      simTimer = setInterval(() => {
+        t += 16;
+        if (rotated < deg) { rotated += rate * 0.016; feed(rate, t); }
+        else { calm += 16; feed(0, t); if (calm > 1000) clearInterval(simTimer); }
+      }, 16);
+    };
+    fallback.append(
+      el('button', { text: 'Test: simuleer spin van 360°', onclick: () => simulate(360) }),
+      el('button', { text: 'Test: simuleer spin van 180°', onclick: () => simulate(180) }),
+      el('button', { text: 'Zonder sensor: gelukt (zelf beslissen)', onclick: () => close({ manual: true, ok: true }) }),
+      el('button', { text: 'Zonder sensor: mislukt', onclick: () => close({ manual: true, ok: false }) }),
+    );
+  });
+
+  if (listener) window.removeEventListener('devicemotion', listener);
+  if (simTimer) clearInterval(simTimer);
+
+  if (outcome.cancel) { state.busy = false; presentThrow(); return; }
+
+  let ok;
+  if (outcome.manual) ok = outcome.ok;
+  else {
+    const deg = Math.round(Math.abs(outcome.degrees));
+    ok = spinIsOk(outcome.degrees);
+    await showModal([
+      el('h2', { text: ok ? '✅ Gelukt!' : '❌ Mislukt' }),
+      el('p', { text: `Gemeten: ${deg}° (doel ${SPIN_TARGET}° ± ${SPIN_TOLERANCE}°).` }),
+    ], [{ label: 'Verder', cls: 'primary', value: true }]);
+  }
+
   if (ok) {
     state.dice = [2, 1];
     renderDice(state.dice);
@@ -437,10 +546,8 @@ async function accept(dice, fromPhone = false) {
   renderRoundScores();
   addLog(`${name} gooit ${label}.`);
 
-  // Special combinations only apply to the dice as thrown, not to a phone-spin Mex.
-  if (value === 32) await effect32(p);
-  else if (value === 31) await effect31(p);
-  else if (isDouble(dice)) await effectDouble(p, dice[0]);
+  // 31/32 are handled at throw time; doubles only count for the dice as kept (not a phone-spin Mex).
+  if (isDouble(dice)) await effectDouble(p, dice[0]);
 
   nextTurn();
 }
@@ -479,21 +586,19 @@ async function effect31(p) {
 async function effectDouble(p, n) {
   const name = state.players[p].name;
   const prev = state.hundred;
-  // The "100 man" drinks n slokken for every hundreds throw (11 = 100 → 1 slok, 22 → 2, ...).
-  if (prev !== null) {
-    giveDrinks(prev, n);
-    addLog(`100 man ${state.players[prev].name} drinkt ${slokken(n)}.`);
-  }
   if (n === 1) {
+    // A new 100 man takes over; the old one doesn't have to drink.
     state.hundred = p;
     renderScoreboard();
     addLog(`${name} is de nieuwe 100 man!`);
     await showModal([
       el('h2', { text: '💯 100 man!' }),
       el('p', { text: `${name} is nu de 100 man.` }),
-      prev !== null ? el('p', { class: 'muted', text: `${state.players[prev].name} drinkt 1 slok (100).` }) : null,
+      prev !== null && prev !== p ? el('p', { class: 'muted', text: `${state.players[prev].name} is de 100 man kwijt en hoeft niet te drinken.` }) : null,
     ].filter(Boolean), [{ label: 'Verder', cls: 'primary', value: true }]);
   } else if (prev !== null) {
+    giveDrinks(prev, n);
+    addLog(`100 man ${state.players[prev].name} drinkt ${slokken(n)}.`);
     await showModal([
       el('h2', { text: `${n * 100}!` }),
       el('p', { text: `${state.players[prev].name} (100 man) drinkt ${slokken(n)}.` }),
