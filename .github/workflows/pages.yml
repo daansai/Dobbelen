@@ -1,8 +1,6 @@
 name: Deploy naar GitHub Pages
 
 on:
-  push:
-    branches: [main, claude/amazing-curie-t9mtd5]
   workflow_dispatch:
 
 permissions:
