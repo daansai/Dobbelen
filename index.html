@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dobbelen</title>
+<meta name="theme-color" content="#14161c">
+<meta name="description" content="Dobbelen: een drankspel met 2 dobbelstenen, gebaseerd op Mexen.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Dobbelen">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root {
     --bg: #14161c;
@@ -55,15 +64,30 @@
 
   .turn { text-align: center; }
   .turn .who { font-size: 1.5rem; font-weight: 700; }
-  .dice { display: flex; gap: 18px; justify-content: center; margin: 18px 0 10px; }
+  .tray { position: relative; height: 290px; perspective: 900px; margin: 4px 0 0; user-select: none; }
+  .table { --tw: 320px; --th: 230px; position: absolute; left: 50%; top: 62%; width: var(--tw); height: var(--th);
+    margin: calc(var(--th) / -2) 0 0 calc(var(--tw) / -2); transform: rotateX(52deg); transform-style: preserve-3d;
+    border-radius: 20px; background: radial-gradient(ellipse at center, #2f7a58 0%, #1d4d39 75%, #153a2b 100%);
+    box-shadow: inset 0 0 0 6px #5a3b22, inset 0 0 22px 8px rgba(0,0,0,.45); }
+  .cube3d { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px;
+    transform-style: preserve-3d; will-change: transform; }
+  .face { position: absolute; inset: 0; border-radius: 9px; padding: 7px; display: grid;
+    grid-template: repeat(3, 1fr) / repeat(3, 1fr); backface-visibility: hidden;
+    background: linear-gradient(145deg, #ffffff 0%, #e7e6df 100%); box-shadow: inset 0 0 7px rgba(0,0,0,.22); }
+  .face.f1 { transform: translateZ(29px); }
+  .face.f6 { transform: rotateY(180deg) translateZ(29px); }
+  .face.f2 { transform: rotateY(90deg) translateZ(29px); }
+  .face.f5 { transform: rotateY(-90deg) translateZ(29px); }
+  .face.f3 { transform: rotateX(-90deg) translateZ(29px); }
+  .face.f4 { transform: rotateX(90deg) translateZ(29px); }
+  .pip3d { width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #4a4d55, #111216 70%); }
+  .pip3d.red { background: radial-gradient(circle at 35% 30%, #ff7a7a, #b30f1f 70%); }
+  .shadow3d { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px;
+    border-radius: 14px; background: #000; filter: blur(7px); }
   .die { width: 84px; height: 84px; background: var(--die); border-radius: 16px; padding: 10px;
     display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); box-shadow: 0 4px 0 #b9b9b0, 0 8px 18px rgba(0,0,0,.4); }
   .die.small { width: 48px; height: 48px; padding: 6px; border-radius: 10px; box-shadow: 0 2px 0 #b9b9b0; }
   .pip { background: var(--pip); border-radius: 50%; width: 100%; height: 100%; }
-  .die.rolling { animation: shake .12s infinite; }
-  @keyframes shake { 0% { transform: rotate(-6deg); } 50% { transform: rotate(6deg) translateY(-3px); } 100% { transform: rotate(-6deg); } }
-  @media (prefers-reduced-motion: reduce) { .die.rolling { animation: none; } }
-
   .result { font-size: 1.3rem; font-weight: 700; min-height: 1.8em; }
   .hint { color: var(--muted); min-height: 2.6em; }
   .throws { color: var(--muted); font-size: .9rem; }
@@ -104,6 +128,8 @@
       </div>
     </div>
     <button id="rulesFromSetup" class="ghost" style="width:100%">Bekijk de regels</button>
+    <button id="installBtn" class="primary" style="width:100%; margin-top:10px" hidden>📲 Installeer als app</button>
+    <p id="iosHint" class="muted" style="margin-top:10px" hidden>Op iPhone: tik op Deel en kies "Zet op beginscherm" om dit als app te installeren.</p>
   </section>
 
   <!-- Game -->
@@ -123,7 +149,7 @@
     <div class="panel turn">
       <div class="muted">Aan de beurt</div>
       <div class="who" id="who"></div>
-      <div class="dice" id="dice"></div>
+      <div class="tray" id="tray"><div class="table" id="table"></div></div>
       <div class="result" id="result"></div>
       <div class="hint" id="hint"></div>
       <div class="throws" id="throws"></div>
@@ -282,6 +308,8 @@ $('startGame').addEventListener('click', () => {
   state.log = [];
   $('setup').hidden = true;
   $('game').hidden = false;
+  Dice3D.init($('table'));
+  Dice3D.rest([rnd(), rnd()]);
   startRound();
 });
 $('resetBtn').addEventListener('click', async () => {
@@ -297,7 +325,7 @@ $('resetBtn').addEventListener('click', async () => {
 function showRules() {
   const c = el('div', { class: 'rules' },
     el('h2', { text: 'Regels' }),
-    el('p', { text: 'Iedereen gooit om de beurt met 2 dobbelstenen. Je mag maximaal 3x gooien: na elke worp pas je, of je gooit opnieuw. Na de derde worp moet je het resultaat houden. Wie aan het eind van de ronde de laagste worp heeft, drinkt.' }),
+    el('p', { text: 'Iedereen gooit om de beurt met 2 dobbelstenen. Je mag maximaal 3x gooien: na elke worp pas je, of je gooit opnieuw. Na de derde worp moet je het resultaat houden. Wie aan het eind van de ronde de laagste worp heeft, drinkt 2 slokken. Is er in die ronde een Mex gegooid, dan is de straf dubbel: 4 slokken.' }),
     el('h3', { text: 'Volgorde (hoog naar laag)' }),
     el('p', { text: 'Mex (2 en 1) › dubbel (66 hoogst, 11 laagst) › overige worpen als tweecijferig getal met het hoogste cijfer eerst (5 en 3 = 53).' }),
     el('h3', { text: '32' }), el('p', { text: 'Je deelt 2 slokken uit aan een speler naar keuze en gooit daarna opnieuw (weer 3 worpen).' }),
@@ -330,15 +358,6 @@ function renderRoundScores() {
   box.replaceChildren(el('ul', { class: 'list' }, ...state.scores.map(s =>
     el('li', { text: `${state.players[s.p].name}: ${s.label}` }))));
 }
-function renderDice(dice, rolling = false) {
-  const box = $('dice');
-  box.replaceChildren();
-  for (const n of dice) {
-    const d = dieEl(n);
-    if (rolling) d.classList.add('rolling');
-    box.append(d);
-  }
-}
 function setActions(buttons) {
   $('actions').replaceChildren(...buttons.map(b =>
     el('button', { class: b.cls || '', text: b.label, onclick: b.onClick })));
@@ -365,7 +384,6 @@ function beginTurn() {
   $('result').textContent = '';
   $('hint').textContent = 'Gooi de dobbelstenen!';
   $('throws').textContent = '';
-  renderDice([6, 6].map(() => rnd()));
   renderScoreboard();
   setActions([{ label: '🎲 Gooi', cls: 'primary', onClick: roll }]);
 }
@@ -377,12 +395,7 @@ async function roll() {
   state.throws++;
   $('result').textContent = '';
   $('hint').textContent = '';
-  for (let i = 0; i < 9; i++) {
-    renderDice([rnd(), rnd()], true);
-    await sleep(70);
-  }
-  state.dice = [rnd(), rnd()];
-  renderDice(state.dice);
+  state.dice = await Dice3D.throwDice();
   const v = scoreOf(state.dice);
   if (v === 31 || v === 32) {
     // 31/32 can't be kept: do the effect, then the player starts over with a fresh throw.
@@ -523,10 +536,9 @@ async function phoneSpin() {
   }
 
   if (ok) {
-    state.dice = [2, 1];
-    renderDice(state.dice);
-    $('result').textContent = 'Mex!';
     $('hint').textContent = 'De dobbelstenen draaien om: 65 wordt Mex.';
+    state.dice = await Dice3D.flipOver();
+    $('result').textContent = 'Mex!';
     addLog(`${name} draait de telefoon rond: 65 wordt Mex!`);
   } else {
     addLog(`${name} mist de telefoon-spin en houdt 65.`);
@@ -544,7 +556,7 @@ async function accept(dice, fromPhone = false) {
   const label = labelOf(dice);
   state.scores.push({ p, value, label });
   renderRoundScores();
-  addLog(`${name} gooit ${label}.`);
+  addLog(`${name} gooit ${label.replace(/!$/, "")}.`);
 
   // 31/32 are handled at throw time; doubles only count for the dice as kept (not a phone-spin Mex).
   if (isDouble(dice)) await effectDouble(p, dice[0]);
@@ -616,9 +628,12 @@ async function nextTurn() {
 async function endRound() {
   const min = Math.min(...state.scores.map(s => s.value));
   const losers = state.scores.filter(s => s.value === min).map(s => s.p);
-  for (const p of losers) giveDrinks(p, 1);
+  // The loser drinks 2 slokken; if someone threw a Mex this round it's doubled.
+  const mexThrown = state.scores.some(s => s.value === MEX);
+  const amount = mexThrown ? 4 : 2;
+  for (const p of losers) giveDrinks(p, amount);
   const names = losers.map(p => state.players[p].name).join(' en ');
-  addLog(`Ronde ${state.round}: ${names} ${losers.length > 1 ? 'drinken' : 'drinkt'} (laagste worp).`);
+  addLog(`Ronde ${state.round}: ${names} ${losers.length > 1 ? 'drinken' : 'drinkt'} ${slokken(amount)} (laagste worp${mexThrown ? ', Mex: dubbel' : ''}).`);
 
   const sorted = [...state.scores].sort((x, y) => y.value - x.value);
   const table = el('table', { class: 'rank' }, ...sorted.map(s =>
@@ -627,12 +642,289 @@ async function endRound() {
   await showModal([
     el('h2', { text: `Einde ronde ${state.round}` }),
     table,
-    el('p', { style: 'margin-top:10px', text: `🍺 ${names} ${losers.length > 1 ? 'drinken' : 'drinkt'} een slok!` }),
-  ], [{ label: 'Volgende ronde', cls: 'primary', value: true }]);
+    el('p', { style: 'margin-top:10px', text: `🍺 ${names} ${losers.length > 1 ? 'drinken' : 'drinkt'} ${slokken(amount)}!` }),
+    mexThrown ? el('p', { class: 'muted', text: 'Er is een Mex gegooid, dus de straf is dubbel.' }) : null,
+  ].filter(Boolean), [{ label: 'Volgende ronde', cls: 'primary', value: true }]);
 
   state.starter = losers[0];
   state.round++;
   startRound();
+}
+
+/* ---------- 3D dice with physics ---------- */
+// The dice are thrown into a tray, fall, bounce off the floor, walls and each other, and tip over until a face
+// lies flat. The result is simply whichever face ends up on top. Physics runs in right-handed coordinates
+// (X right, Y away from the viewer, Z up); CSS uses a mirrored Y axis, handled in toCss().
+const Dice3D = (() => {
+  const SIZE = 58, HALF = SIZE / 2, RADIUS = HALF * 1.25, G = 1500;
+  // Local face normals (opposite faces add up to 7).
+  const FACE_N = { 1: [0, 0, 1], 6: [0, 0, -1], 2: [1, 0, 0], 5: [-1, 0, 0], 3: [0, -1, 0], 4: [0, 1, 0] };
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+  const qmul = (a, b) => [
+    a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+    a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+    a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+    a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]];
+  const qnorm = q => { const l = Math.hypot(...q) || 1; return q.map(c => c / l); };
+  const qaxis = (ax, ang) => { const s = Math.sin(ang / 2); return [Math.cos(ang / 2), ax[0] * s, ax[1] * s, ax[2] * s]; };
+  const qrand = () => qnorm([0, 0, 0, 0].map(() => rand(-1, 1) + rand(-1, 1) + rand(-1, 1)));
+  function qmat(q) {
+    const [w, x, y, z] = q;
+    return [[1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]];
+  }
+  const mulv = (m, v) => [0, 1, 2].map(i => m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2]);
+  function qslerp(a, b, t) {
+    let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    if (d < 0) { b = b.map(c => -c); d = -d; }
+    if (d > 0.9995) return qnorm(a.map((c, i) => c + (b[i] - c) * t));
+    const th = Math.acos(d), s = Math.sin(th);
+    const f = Math.sin((1 - t) * th) / s, g = Math.sin(t * th) / s;
+    return a.map((c, i) => c * f + b[i] * g);
+  }
+  // Rotation that turns world vector n onto "up" (0,0,1) by the shortest way, scaled by fraction.
+  function arcToUp(n, fraction = 1) {
+    const ang = Math.acos(clamp(n[2], -1, 1));
+    if (ang < 1e-5) return [1, 0, 0, 0];
+    let ax = [n[1], -n[0], 0];
+    const l = Math.hypot(ax[0], ax[1]);
+    ax = l < 1e-9 ? [1, 0, 0] : [ax[0] / l, ax[1] / l, 0];
+    return qaxis(ax, ang * fraction);
+  }
+  // The face that's currently most upward, as {value, normal in world coords}.
+  function topFace(q) {
+    const m = qmat(q);
+    let best = null;
+    for (const v of [1, 2, 3, 4, 5, 6]) {
+      const n = mulv(m, FACE_N[v]);
+      if (!best || n[2] > best.n[2]) best = { value: v, n };
+    }
+    return best;
+  }
+
+  let table = null, W = 320, H = 240, dice = [], running = false, raf = 0;
+
+  function makeDie() {
+    const cube = document.createElement('div');
+    cube.className = 'cube3d';
+    for (let v = 1; v <= 6; v++) {
+      const f = document.createElement('div');
+      f.className = `face f${v}`;
+      const pips = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] }[v];
+      for (const cell of pips) {
+        const p = document.createElement('div');
+        p.className = 'pip3d' + (v === 1 ? ' red' : '');
+        p.style.gridArea = `${Math.ceil(cell / 3)} / ${((cell - 1) % 3) + 1}`;
+        f.append(p);
+      }
+      cube.append(f);
+    }
+    const shadow = document.createElement('div');
+    shadow.className = 'shadow3d';
+    table.append(shadow, cube);
+    return { el: cube, shadow, p: [0, 0, HALF], v: [0, 0, 0], q: [1, 0, 0, 0], w: [0, 0, 0], done: true, calm: 0 };
+  }
+
+  function toCss(d) {
+    const m = qmat(d.q), s = [1, -1, 1];
+    const c = (i, j) => (m[i][j] * s[i] * s[j]).toFixed(5);
+    d.el.style.transform = `translate3d(${d.p[0].toFixed(1)}px,${(-d.p[1]).toFixed(1)}px,${d.p[2].toFixed(1)}px) matrix3d(` +
+      `${c(0, 0)},${c(1, 0)},${c(2, 0)},0,${c(0, 1)},${c(1, 1)},${c(2, 1)},0,${c(0, 2)},${c(1, 2)},${c(2, 2)},0,0,0,0,1)`;
+    const h = Math.max(0, d.p[2] - HALF);
+    d.shadow.style.transform = `translate3d(${d.p[0].toFixed(1)}px,${(-d.p[1]).toFixed(1)}px,0.5px) scale(${(1 + h / 260).toFixed(3)})`;
+    d.shadow.style.opacity = clamp(0.6 - h / 420, 0.12, 0.6).toFixed(2);
+  }
+
+  function layout() {
+    const tray = table.parentElement;
+    W = clamp(tray.clientWidth - 8, 240, 520);
+    H = 230;
+    table.style.setProperty('--tw', `${W}px`);
+    table.style.setProperty('--th', `${H}px`);
+  }
+
+  function init(tableEl) {
+    table = tableEl;
+    table.replaceChildren();
+    dice = [makeDie(), makeDie()];
+    layout();
+    window.addEventListener('resize', () => { layout(); dice.forEach(d => { clampToTable(d); toCss(d); }); });
+  }
+  function clampToTable(d) {
+    d.p[0] = clamp(d.p[0], -(W / 2 - RADIUS), W / 2 - RADIUS);
+    d.p[1] = clamp(d.p[1], -(H / 2 - RADIUS), H / 2 - RADIUS);
+  }
+
+  // Place the dice at rest showing the given values.
+  function rest(values) {
+    layout();
+    dice.forEach((d, i) => {
+      const n = mulv(qmat([1, 0, 0, 0]), FACE_N[values[i]]);
+      d.q = qnorm(qmul(qaxis([0, 0, 1], rand(0, Math.PI * 2)), arcToUp(n)));
+      d.p = [(i === 0 ? -1 : 1) * rand(45, 70), rand(-35, 35), HALF];
+      d.v = [0, 0, 0]; d.w = [0, 0, 0]; d.done = true;
+      toCss(d);
+    });
+  }
+  const values = () => dice.map(d => topFace(d.q).value);
+
+  function step(d, dt, elapsed, forcedFace) {
+    d.v[2] -= G * dt;
+    for (let i = 0; i < 3; i++) d.p[i] += d.v[i] * dt;
+    const wl = Math.hypot(...d.w);
+    if (wl > 1e-6) d.q = qnorm(qmul(qaxis(d.w.map(c => c / wl), wl * dt), d.q));
+
+    const m = qmat(d.q);
+    const floor = HALF * (Math.abs(m[2][0]) + Math.abs(m[2][1]) + Math.abs(m[2][2]));
+    const late = elapsed > 1.6;
+    let contact = false;
+    if (d.p[2] <= floor) {
+      d.p[2] = floor; contact = true;
+      if (d.v[2] < 0) {
+        const vi = -d.v[2];
+        d.v[2] = vi > 90 ? vi * 0.42 : 0;
+        d.v[0] *= 0.82; d.v[1] *= 0.82;
+        for (let i = 0; i < 3; i++) d.w[i] *= 0.72;
+        if (vi > 90) { d.w[0] += rand(-1, 1) * vi * 0.012; d.w[1] += rand(-1, 1) * vi * 0.012; d.w[2] += rand(-1, 1) * vi * 0.006; }
+      }
+    }
+    // walls
+    const lx = W / 2 - RADIUS, ly = H / 2 - RADIUS;
+    if (d.p[0] > lx) { d.p[0] = lx; if (d.v[0] > 0) { d.v[0] *= -0.5; d.w[2] += rand(-3, 3); } }
+    if (d.p[0] < -lx) { d.p[0] = -lx; if (d.v[0] < 0) { d.v[0] *= -0.5; d.w[2] += rand(-3, 3); } }
+    if (d.p[1] > ly) { d.p[1] = ly; if (d.v[1] > 0) { d.v[1] *= -0.5; d.w[2] += rand(-3, 3); } }
+    if (d.p[1] < -ly) { d.p[1] = -ly; if (d.v[1] < 0) { d.v[1] *= -0.5; d.w[2] += rand(-3, 3); } }
+
+    if (contact) {
+      const sp = Math.hypot(d.v[0], d.v[1]);
+      const fr = Math.exp(-(late ? 9 : 3.4) * dt);
+      d.v[0] *= fr; d.v[1] *= fr;
+      // rolling: spin follows the sliding direction
+      const k = Math.min(1, 8 * dt);
+      d.w[0] += (-d.v[1] / HALF - d.w[0]) * k;
+      d.w[1] += (d.v[0] / HALF - d.w[1]) * k;
+      d.w[2] *= Math.exp(-3 * dt);
+      if (late) for (let i = 0; i < 3; i++) d.w[i] *= Math.exp(-6 * dt);
+      // tip over onto the nearest (or forced) flat face once slow enough
+      if (sp < 200 || late) {
+        const n = forcedFace ? mulv(m, FACE_N[forcedFace]) : topFace(d.q).n;
+        d.q = qnorm(qmul(arcToUp(n, Math.min(1, (late ? 25 : 9) * dt)), d.q));
+      }
+      const n2 = forcedFace ? mulv(qmat(d.q), FACE_N[forcedFace]) : topFace(d.q).n;
+      if (sp < 8 && Math.hypot(...d.w) < 0.6 && n2[2] > 0.9995) d.calm += dt; else d.calm = 0;
+      if (d.calm > 0.15) {
+        d.q = qnorm(qmul(arcToUp(n2), d.q));
+        d.v = [0, 0, 0]; d.w = [0, 0, 0]; d.done = true;
+      }
+    } else {
+      d.calm = 0;
+    }
+  }
+
+  function collide(a, b) {
+    const dx = b.p[0] - a.p[0], dy = b.p[1] - a.p[1];
+    const dist = Math.hypot(dx, dy), min = RADIUS * 1.9;
+    if (dist >= min || dist < 1e-6 || Math.abs(a.p[2] - b.p[2]) > SIZE * 0.9) return;
+    const nx = dx / dist, ny = dy / dist, push = (min - dist) / 2;
+    a.p[0] -= nx * push; a.p[1] -= ny * push; b.p[0] += nx * push; b.p[1] += ny * push;
+    const rv = (b.v[0] - a.v[0]) * nx + (b.v[1] - a.v[1]) * ny;
+    if (rv < 0) {
+      const j = -(1 + 0.5) * rv / 2;
+      a.v[0] -= j * nx; a.v[1] -= j * ny; b.v[0] += j * nx; b.v[1] += j * ny;
+      for (const d of [a, b]) { d.done = false; d.calm = 0; d.w[0] += rand(-4, 4); d.w[1] += rand(-4, 4); }
+    }
+  }
+
+  // Throw both dice; resolves with the two values that end up face up.
+  function throwDice() {
+    return new Promise(resolve => {
+      layout();
+      const forced = window.__forceDice || null;   // debug/test hook: window.__forceDice = [a, b]
+      window.__forceDice = null;
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        rest(forced || [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)]);
+        setTimeout(() => resolve(values()), 300);
+        return;
+      }
+      const ySign = Math.random() < 0.5 ? 1 : -1;
+      dice.forEach((d, i) => {
+        d.p = [-W / 2 + RADIUS + 10 + i * 50, ySign * (i === 0 ? 1 : -1) * rand(20, H / 3), rand(150, 190) + i * 85];
+        d.v = [rand(130, 230), rand(-90, 90), rand(-60, 0)];
+        d.q = qrand();
+        const wv = [rand(-1, 1), rand(-1, 1), rand(-1, 1)], wl = Math.hypot(...wv) || 1, mag = rand(11, 19);
+        d.w = wv.map(c => c / wl * mag);
+        d.done = false; d.calm = 0;
+      });
+      let last = performance.now(), elapsed = 0;
+      cancelAnimationFrame(raf);
+      const frame = now => {
+        const frameDt = Math.min((now - last) / 1000, 1 / 20);
+        last = now; elapsed += frameDt;
+        const n = Math.ceil(frameDt / (1 / 240));
+        for (let s = 0; s < n; s++) {
+          for (let i = 0; i < 2; i++) if (!dice[i].done) step(dice[i], frameDt / n, elapsed, forced && forced[i]);
+          collide(dice[0], dice[1]);
+        }
+        dice.forEach(toCss);
+        if (dice.every(d => d.done) || elapsed > 6) {
+          if (!dice.every(d => d.done)) dice.forEach((d, i) => {
+            const f = forced ? FACE_N[forced[i]] : null;
+            d.q = qnorm(qmul(arcToUp(f ? mulv(qmat(d.q), f) : topFace(d.q).n), d.q));
+            d.p[2] = HALF; d.v = [0, 0, 0]; d.w = [0, 0, 0]; d.done = true; toCss(d);
+          });
+          resolve(values());
+          return;
+        }
+        raf = requestAnimationFrame(frame);
+      };
+      raf = requestAnimationFrame(frame);
+    });
+  }
+
+  // Flip both dice over (6 becomes 1, 5 becomes 2, ...). Resolves with the new values.
+  function flipOver() {
+    return new Promise(resolve => {
+      const from = dice.map(d => d.q.slice());
+      const to = dice.map(d => {
+        const target = 7 - topFace(d.q).value;
+        return qnorm(qmul(arcToUp(mulv(qmat(d.q), FACE_N[target])), d.q));
+      });
+      const base = dice.map(d => d.p[2]);
+      const start = performance.now(), dur = 1000;
+      const frame = now => {
+        const t = clamp((now - start) / dur, 0, 1), e = t * t * (3 - 2 * t);
+        dice.forEach((d, i) => {
+          d.q = qslerp(from[i], to[i], e);
+          d.p[2] = base[i] + 80 * Math.sin(Math.PI * t);
+          toCss(d);
+        });
+        if (t < 1) { requestAnimationFrame(frame); return; }
+        dice.forEach((d, i) => { d.q = to[i]; d.p[2] = base[i]; toCss(d); });
+        resolve(values());
+      };
+      requestAnimationFrame(frame);
+    });
+  }
+
+  return { init, rest, throwDice, flipOver, values };
+})();
+
+/* ---------- Install as app (PWA) ---------- */
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('installBtn').hidden = false; });
+$('installBtn').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  $('installBtn').hidden = true;
+});
+if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone) $('iosHint').hidden = false;
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 
 /* ---------- Init ---------- */
