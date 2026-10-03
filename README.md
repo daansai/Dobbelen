@@ -19,3 +19,12 @@ Na de eerste keer werkt het spel ook zonder internet.
 ## Lokaal testen
 
 Open `index.html` in een browser. Voor de service worker (app-installatie) is een webserver nodig, bijvoorbeeld `python3 -m http.server` en dan `http://localhost:8000`.
+
+## Android-app downloaden (apk)
+
+Na elke push bouwt GitHub automatisch een Android-app en zet die als download klaar:
+
+- Direct downloaden: https://github.com/daansai/Dobbelen/releases/latest/download/Dobbelen.apk
+- Of ga naar **Releases** op de repo-pagina en tik op `Dobbelen.apk`.
+
+Open het bestand op je Android-telefoon en installeer (sta "installeren uit onbekende bronnen" toe als Android erom vraagt).
