@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dobbelen</title>
+<style>
+  :root {
+    --bg: #14161c;
+    --panel: #1e222b;
+    --panel-2: #272c38;
+    --text: #f2f3f5;
+    --muted: #9aa1b0;
+    --accent: #f5b83d;
+    --accent-text: #1a1303;
+    --danger: #ef5b5b;
+    --ok: #4cc38a;
+    --die: #fbfbf8;
+    --pip: #1b1d22;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { min-height: 100vh; }
+  main { max-width: 560px; margin: 0 auto; padding: 16px; }
+  h1 { margin: 8px 0 4px; font-size: 1.8rem; letter-spacing: .02em; }
+  h2 { margin: 0 0 8px; font-size: 1.1rem; }
+  p { margin: 0 0 8px; }
+  .muted { color: var(--muted); }
+  .panel { background: var(--panel); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  [hidden] { display: none !important; }
+
+  button { font: inherit; border: 0; border-radius: 10px; padding: 12px 16px; cursor: pointer;
+    background: var(--panel-2); color: var(--text); min-height: 46px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-text); font-weight: 700; }
+  button.danger { background: var(--danger); color: #fff; }
+  button.ghost { background: transparent; border: 1px solid var(--panel-2); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 auto; }
+
+  input[type=text] { font: inherit; width: 100%; padding: 12px; border-radius: 10px;
+    border: 1px solid var(--panel-2); background: var(--bg); color: var(--text); }
+  .player-input { display: flex; gap: 8px; margin-bottom: 8px; }
+  .player-input button { flex: 0 0 auto; }
+
+  .topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .topbar .row { flex: 0 0 auto; }
+  .topbar button { padding: 8px 12px; min-height: 38px; }
+
+  .scoreboard { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--panel-2); border-radius: 999px; padding: 4px 10px; font-size: .9rem; }
+  .chip.active { outline: 2px solid var(--accent); }
+  .chip b { color: var(--accent); }
+
+  .turn { text-align: center; }
+  .turn .who { font-size: 1.5rem; font-weight: 700; }
+  .dice { display: flex; gap: 18px; justify-content: center; margin: 18px 0 10px; }
+  .die { width: 84px; height: 84px; background: var(--die); border-radius: 16px; padding: 10px;
+    display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); box-shadow: 0 4px 0 #b9b9b0, 0 8px 18px rgba(0,0,0,.4); }
+  .die.small { width: 48px; height: 48px; padding: 6px; border-radius: 10px; box-shadow: 0 2px 0 #b9b9b0; }
+  .pip { background: var(--pip); border-radius: 50%; width: 100%; height: 100%; }
+  .die.rolling { animation: shake .12s infinite; }
+  @keyframes shake { 0% { transform: rotate(-6deg); } 50% { transform: rotate(6deg) translateY(-3px); } 100% { transform: rotate(-6deg); } }
+  @media (prefers-reduced-motion: reduce) { .die.rolling { animation: none; } }
+
+  .result { font-size: 1.3rem; font-weight: 700; min-height: 1.8em; }
+  .hint { color: var(--muted); min-height: 2.6em; }
+  .throws { color: var(--muted); font-size: .9rem; }
+
+  ol.list, ul.list { margin: 0; padding-left: 20px; }
+  ul.log { list-style: none; padding: 0; margin: 0; color: var(--muted); font-size: .92rem; }
+  ul.log li { padding: 3px 0; border-bottom: 1px solid var(--panel-2); }
+  ul.log li:first-child { color: var(--text); }
+
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex;
+    align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  .modal { background: var(--panel); border-radius: 16px; padding: 18px; width: 100%; max-width: 440px;
+    max-height: 90vh; overflow: auto; }
+  .modal .buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .versus { display: flex; align-items: center; justify-content: space-around; gap: 8px; margin: 10px 0; text-align: center; }
+  .versus .side { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .versus .side .pair { display: flex; gap: 6px; }
+  .loser { color: var(--danger); font-weight: 700; }
+  table.rank { width: 100%; border-collapse: collapse; }
+  table.rank td { padding: 4px 6px; border-bottom: 1px solid var(--panel-2); }
+  table.rank td:last-child { text-align: right; }
+  table.rank tr.lowest td { color: var(--danger); font-weight: 700; }
+  .rules h3 { margin: 12px 0 4px; font-size: 1rem; color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <!-- Setup -->
+  <section id="setup">
+    <h1>🎲 Dobbelen</h1>
+    <p class="muted">Een drankspel met 2 dobbelstenen, gebaseerd op Mexen. Wie de laagste worp heeft, drinkt.</p>
+    <div class="panel">
+      <h2>Spelers</h2>
+      <div id="playerInputs"></div>
+      <div class="row">
+        <button id="addPlayer" class="ghost">+ Speler toevoegen</button>
+        <button id="startGame" class="primary">Start spel</button>
+      </div>
+    </div>
+    <button id="rulesFromSetup" class="ghost" style="width:100%">Bekijk de regels</button>
+  </section>
+
+  <!-- Game -->
+  <section id="game" hidden>
+    <div class="topbar">
+      <h2 id="roundLabel">Ronde 1</h2>
+      <div class="row">
+        <button id="rulesBtn" class="ghost">Regels</button>
+        <button id="resetBtn" class="ghost">Stop</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div id="scoreboard" class="scoreboard"></div>
+    </div>
+
+    <div class="panel turn">
+      <div class="muted">Aan de beurt</div>
+      <div class="who" id="who"></div>
+      <div class="dice" id="dice"></div>
+      <div class="result" id="result"></div>
+      <div class="hint" id="hint"></div>
+      <div class="throws" id="throws"></div>
+      <div class="row" id="actions" style="margin-top:10px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Deze ronde</h2>
+      <div id="roundScores" class="muted">Nog niemand gegooid.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Verloop</h2>
+      <ul class="log" id="log"></ul>
+    </div>
+  </section>
+</main>
+
+<div id="overlay" class="overlay" hidden><div class="modal" id="modal"></div></div>
+
+<script>
+'use strict';
+
+/* ---------- Scoring ---------- */
+const MEX = 1000;
+
+// Score value: Mex (2+1) > doubles (11 = 100 ... 66 = 600) > two-digit number, highest die first.
+function scoreOf([a, b]) {
+  const hi = Math.max(a, b), lo = Math.min(a, b);
+  if (hi === 2 && lo === 1) return MEX;
+  if (a === b) return a * 100;
+  return hi * 10 + lo;
+}
+function labelOf(dice) {
+  const v = scoreOf(dice);
+  if (v === MEX) return 'Mex!';
+  if (dice[0] === dice[1]) return `Dubbel ${dice[0]} (${v})`;
+  return String(v);
+}
+function isDouble(dice) { return dice[0] === dice[1]; }
+
+/* ---------- Helpers ---------- */
+const $ = id => document.getElementById(id);
+const rnd = () => 1 + Math.floor(Math.random() * 6);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') e.className = v;
+    else if (k === 'text') e.textContent = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const kid of kids) if (kid != null) e.append(kid);
+  return e;
+}
+const PIPS = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] };
+function dieEl(n, small = false) {
+  const d = el('div', { class: 'die' + (small ? ' small' : '') });
+  for (const cell of PIPS[n]) {
+    const p = el('div', { class: 'pip' });
+    p.style.gridArea = `${Math.ceil(cell / 3)} / ${((cell - 1) % 3) + 1}`;
+    d.append(p);
+  }
+  return d;
+}
+function slokken(n) { return `${n} ${n === 1 ? 'slok' : 'slokken'}`; }
+
+/* ---------- Modal ---------- */
+function showModal(content, buttons) {
+  return new Promise(resolve => {
+    const modal = $('modal');
+    modal.replaceChildren(...content);
+    const box = el('div', { class: 'buttons' });
+    for (const b of buttons) {
+      box.append(el('button', {
+        class: b.cls || '', text: b.label,
+        onclick: () => { $('overlay').hidden = true; resolve(b.value); },
+      }));
+    }
+    modal.append(box);
+    $('overlay').hidden = false;
+  });
+}
+
+/* ---------- State ---------- */
+const state = {
+  players: [],          // { name, drinks }
+  round: 1,
+  starter: 0,
+  order: [],            // player indices in turn order this round
+  pos: 0,               // position in order
+  scores: [],           // { p, value, label }
+  throws: 0,
+  dice: null,
+  hundred: null,        // index of current "100 man"
+  log: [],
+  busy: false,
+};
+
+function addLog(text) {
+  state.log.unshift(text);
+  state.log = state.log.slice(0, 8);
+  renderLog();
+}
+function giveDrinks(p, n) { state.players[p].drinks += n; renderScoreboard(); }
+
+/* ---------- Setup screen ---------- */
+function loadNames() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('dobbelen.names'));
+    if (Array.isArray(saved) && saved.length >= 2) return saved;
+  } catch (e) { /* storage unavailable */ }
+  return ['Speler 1', 'Speler 2'];
+}
+function saveNames(names) {
+  try { localStorage.setItem('dobbelen.names', JSON.stringify(names)); } catch (e) { /* ignore */ }
+}
+function renderSetup(names) {
+  const box = $('playerInputs');
+  box.replaceChildren();
+  names.forEach((name, i) => {
+    const input = el('input', { type: 'text', maxlength: '20', value: name, 'aria-label': `Naam speler ${i + 1}`, placeholder: `Speler ${i + 1}` });
+    const row = el('div', { class: 'player-input' }, input);
+    if (names.length > 2) {
+      row.append(el('button', { class: 'ghost', 'aria-label': 'Verwijder speler', text: '✕', onclick: () => {
+        const cur = readNames(); cur.splice(i, 1); renderSetup(cur);
+      } }));
+    }
+    box.append(row);
+  });
+}
+function readNames() {
+  return [...$('playerInputs').querySelectorAll('input')].map(i => i.value);
+}
+
+$('addPlayer').addEventListener('click', () => {
+  const cur = readNames();
+  if (cur.length >= 12) return;
+  cur.push(`Speler ${cur.length + 1}`);
+  renderSetup(cur);
+});
+$('startGame').addEventListener('click', () => {
+  const names = readNames().map((n, i) => n.trim() || `Speler ${i + 1}`);
+  saveNames(names);
+  state.players = names.map(name => ({ name, drinks: 0 }));
+  state.round = 1;
+  state.starter = 0;
+  state.hundred = null;
+  state.log = [];
+  $('setup').hidden = true;
+  $('game').hidden = false;
+  startRound();
+});
+$('resetBtn').addEventListener('click', async () => {
+  const ok = await showModal([el('h2', { text: 'Spel stoppen?' }), el('p', { class: 'muted', text: 'De stand gaat verloren.' })],
+    [{ label: 'Ja, stop', cls: 'danger', value: true }, { label: 'Doorspelen', value: false }]);
+  if (!ok) return;
+  $('game').hidden = true;
+  $('setup').hidden = false;
+  renderSetup(loadNames());
+});
+
+/* ---------- Rules ---------- */
+function showRules() {
+  const c = el('div', { class: 'rules' },
+    el('h2', { text: 'Regels' }),
+    el('p', { text: 'Iedereen gooit om de beurt met 2 dobbelstenen. Je mag maximaal 3x gooien: na elke worp pas je, of je gooit opnieuw. Na de derde worp moet je het resultaat houden. Wie aan het eind van de ronde de laagste worp heeft, drinkt.' }),
+    el('h3', { text: 'Volgorde (hoog naar laag)' }),
+    el('p', { text: 'Mex (2 en 1) › dubbel (66 hoogst, 11 laagst) › overige worpen als tweecijferig getal met het hoogste cijfer eerst (5 en 3 = 53).' }),
+    el('h3', { text: '32' }), el('p', { text: 'Je mag 2 slokken uitdelen.' }),
+    el('h3', { text: '31' }), el('p', { text: 'Je battlet met een willekeurige speler. Jullie gooien allebei; wie het hoogste gooit moet drinken.' }),
+    el('h3', { text: 'Dubbel 1 = 100 man' }), el('p', { text: 'Je wordt de 100 man. Elke keer dat iemand een honderdtal gooit (dubbel: 11 = 100, 22 = 200 … 66 = 600), moet de 100 man dat aantal slokken drinken. 500 = 5 slokken.' }),
+    el('h3', { text: '65' }), el('p', { text: 'Je kiest: 65 als score houden, of de telefoon op tafel in een (bijna) perfect rondje laten draaien. Lukt dat, dan draaien de dobbelstenen om (6 en 5 worden 1 en 2) en heb je Mex. Lukt het niet, dan blijft het 65.' }),
+  );
+  return showModal([c], [{ label: 'Sluiten', cls: 'primary', value: null }]);
+}
+$('rulesBtn').addEventListener('click', showRules);
+$('rulesFromSetup').addEventListener('click', showRules);
+
+/* ---------- Rendering ---------- */
+function renderScoreboard() {
+  const box = $('scoreboard');
+  box.replaceChildren();
+  state.players.forEach((p, i) => {
+    const active = state.order[state.pos] === i;
+    const chip = el('span', { class: 'chip' + (active ? ' active' : '') });
+    chip.append(`${state.hundred === i ? '💯 ' : ''}${p.name} `, el('b', { text: String(p.drinks) }));
+    box.append(chip);
+  });
+}
+function renderLog() {
+  $('log').replaceChildren(...state.log.map(t => el('li', { text: t })));
+}
+function renderRoundScores() {
+  const box = $('roundScores');
+  if (!state.scores.length) { box.textContent = 'Nog niemand gegooid.'; return; }
+  box.replaceChildren(el('ul', { class: 'list' }, ...state.scores.map(s =>
+    el('li', { text: `${state.players[s.p].name}: ${s.label}` }))));
+}
+function renderDice(dice, rolling = false) {
+  const box = $('dice');
+  box.replaceChildren();
+  for (const n of dice) {
+    const d = dieEl(n);
+    if (rolling) d.classList.add('rolling');
+    box.append(d);
+  }
+}
+function setActions(buttons) {
+  $('actions').replaceChildren(...buttons.map(b =>
+    el('button', { class: b.cls || '', text: b.label, onclick: b.onClick })));
+}
+
+/* ---------- Round flow ---------- */
+function startRound() {
+  const n = state.players.length;
+  state.order = Array.from({ length: n }, (_, i) => (state.starter + i) % n);
+  state.pos = 0;
+  state.scores = [];
+  $('roundLabel').textContent = `Ronde ${state.round}`;
+  renderRoundScores();
+  renderLog();
+  beginTurn();
+}
+
+function beginTurn() {
+  state.throws = 0;
+  state.dice = null;
+  state.busy = false;
+  const p = state.order[state.pos];
+  $('who').textContent = state.players[p].name;
+  $('result').textContent = '';
+  $('hint').textContent = 'Gooi de dobbelstenen!';
+  $('throws').textContent = '';
+  renderDice([6, 6].map(() => rnd()));
+  renderScoreboard();
+  setActions([{ label: '🎲 Gooi', cls: 'primary', onClick: roll }]);
+}
+
+async function roll() {
+  if (state.busy) return;
+  state.busy = true;
+  setActions([]);
+  state.throws++;
+  $('result').textContent = '';
+  $('hint').textContent = '';
+  for (let i = 0; i < 9; i++) {
+    renderDice([rnd(), rnd()], true);
+    await sleep(70);
+  }
+  state.dice = [rnd(), rnd()];
+  renderDice(state.dice);
+  presentThrow();
+  state.busy = false;
+}
+
+function presentThrow() {
+  const dice = state.dice;
+  const v = scoreOf(dice);
+  $('result').textContent = labelOf(dice);
+  $('throws').textContent = `Worp ${state.throws} van 3`;
+  const hints = [];
+  if (v === 32) hints.push('32: je mag 2 slokken uitdelen.');
+  if (v === 31) hints.push('31: je gaat battlen met een willekeurige speler.');
+  if (dice[0] === 1 && dice[1] === 1) hints.push('Dubbel 1: je wordt de 100 man!');
+  else if (isDouble(dice)) hints.push(`${v}: de 100 man drinkt ${slokken(dice[0])}.`);
+  if (v === 65) hints.push('65: houden, of de telefoon-spin proberen voor Mex.');
+  $('hint').textContent = hints.join(' ');
+
+  const last = state.throws >= 3;
+  const buttons = [{ label: last ? 'Verder' : 'Pas', cls: 'primary', onClick: () => accept(dice) }];
+  if (!last) buttons.push({ label: `Gooi opnieuw (${3 - state.throws} over)`, onClick: roll });
+  if (v === 65) buttons.push({ label: '📱 Telefoon-spin', onClick: phoneSpin });
+  setActions(buttons);
+}
+
+async function phoneSpin() {
+  if (state.busy) return;
+  state.busy = true;
+  setActions([]);
+  const name = state.players[state.order[state.pos]].name;
+  const ok = await showModal([
+    el('h2', { text: '📱 Telefoon-spin' }),
+    el('p', { text: `${name}, leg je telefoon op tafel en gooi hem in een (bijna) perfect rondje. Is het gelukt?` }),
+  ], [
+    { label: 'Gelukt: Mex!', cls: 'primary', value: true },
+    { label: 'Mislukt: 65 blijft', cls: 'danger', value: false },
+  ]);
+  if (ok) {
+    state.dice = [2, 1];
+    renderDice(state.dice);
+    $('result').textContent = 'Mex!';
+    $('hint').textContent = 'De dobbelstenen draaien om: 65 wordt Mex.';
+    addLog(`${name} draait de telefoon rond: 65 wordt Mex!`);
+  } else {
+    addLog(`${name} mist de telefoon-spin en houdt 65.`);
+  }
+  await accept(state.dice, true);
+}
+
+async function accept(dice, fromPhone = false) {
+  if (state.busy && !fromPhone) return;
+  state.busy = true;
+  setActions([]);
+  const p = state.order[state.pos];
+  const name = state.players[p].name;
+  const value = scoreOf(dice);
+  const label = labelOf(dice);
+  state.scores.push({ p, value, label });
+  renderRoundScores();
+  addLog(`${name} gooit ${label}.`);
+
+  // Special combinations only apply to the dice as thrown, not to a phone-spin Mex.
+  if (value === 32) await effect32(p);
+  else if (value === 31) await effect31(p);
+  else if (isDouble(dice)) await effectDouble(p, dice[0]);
+
+  nextTurn();
+}
+
+/* ---------- Special effects ---------- */
+async function effect32(p) {
+  const others = state.players.map((pl, i) => i).filter(i => i !== p);
+  const target = await showModal(
+    [el('h2', { text: '32! Deel 2 slokken uit' }), el('p', { class: 'muted', text: `${state.players[p].name}, wie moet drinken?` })],
+    others.map(i => ({ label: state.players[i].name, value: i })));
+  giveDrinks(target, 2);
+  addLog(`${state.players[p].name} deelt 2 slokken uit aan ${state.players[target].name}.`);
+}
+
+async function effect31(p) {
+  const others = state.players.map((pl, i) => i).filter(i => i !== p);
+  const opp = others[Math.floor(Math.random() * others.length)];
+  const nameA = state.players[p].name, nameB = state.players[opp].name;
+  let a, b;
+  do { a = [rnd(), rnd()]; b = [rnd(), rnd()]; } while (scoreOf(a) === scoreOf(b));
+  const loser = scoreOf(a) > scoreOf(b) ? p : opp; // hoogste gooit moet drinken
+  const side = (name, dice, isLoser) => el('div', { class: 'side' },
+    el('div', { class: isLoser ? 'loser' : '', text: name }),
+    el('div', { class: 'pair' }, dieEl(dice[0], true), dieEl(dice[1], true)),
+    el('div', { class: isLoser ? 'loser' : 'muted', text: labelOf(dice) }));
+  await showModal([
+    el('h2', { text: '31! Battle' }),
+    el('p', { class: 'muted', text: `${nameA} battlet met ${nameB}. Wie het hoogste gooit moet drinken.` }),
+    el('div', { class: 'versus' }, side(nameA, a, loser === p), el('b', { text: 'VS' }), side(nameB, b, loser === opp)),
+    el('p', { text: `${state.players[loser].name} drinkt!` }),
+  ], [{ label: 'Verder', cls: 'primary', value: true }]);
+  giveDrinks(loser, 1);
+  addLog(`Battle ${nameA} vs ${nameB}: ${state.players[loser].name} drinkt.`);
+}
+
+async function effectDouble(p, n) {
+  const name = state.players[p].name;
+  const prev = state.hundred;
+  // The "100 man" drinks n slokken for every hundreds throw (11 = 100 → 1 slok, 22 → 2, ...).
+  if (prev !== null) {
+    giveDrinks(prev, n);
+    addLog(`100 man ${state.players[prev].name} drinkt ${slokken(n)}.`);
+  }
+  if (n === 1) {
+    state.hundred = p;
+    renderScoreboard();
+    addLog(`${name} is de nieuwe 100 man!`);
+    await showModal([
+      el('h2', { text: '💯 100 man!' }),
+      el('p', { text: `${name} is nu de 100 man.` }),
+      prev !== null ? el('p', { class: 'muted', text: `${state.players[prev].name} drinkt 1 slok (100).` }) : null,
+    ].filter(Boolean), [{ label: 'Verder', cls: 'primary', value: true }]);
+  } else if (prev !== null) {
+    await showModal([
+      el('h2', { text: `${n * 100}!` }),
+      el('p', { text: `${state.players[prev].name} (100 man) drinkt ${slokken(n)}.` }),
+    ], [{ label: 'Verder', cls: 'primary', value: true }]);
+  }
+}
+
+/* ---------- End of turn / round ---------- */
+async function nextTurn() {
+  state.pos++;
+  if (state.pos < state.order.length) { beginTurn(); return; }
+  await endRound();
+}
+
+async function endRound() {
+  const min = Math.min(...state.scores.map(s => s.value));
+  const losers = state.scores.filter(s => s.value === min).map(s => s.p);
+  for (const p of losers) giveDrinks(p, 1);
+  const names = losers.map(p => state.players[p].name).join(' en ');
+  addLog(`Ronde ${state.round}: ${names} ${losers.length > 1 ? 'drinken' : 'drinkt'} (laagste worp).`);
+
+  const sorted = [...state.scores].sort((x, y) => y.value - x.value);
+  const table = el('table', { class: 'rank' }, ...sorted.map(s =>
+    el('tr', { class: s.value === min ? 'lowest' : '' },
+      el('td', { text: state.players[s.p].name }), el('td', { text: s.label }))));
+  await showModal([
+    el('h2', { text: `Einde ronde ${state.round}` }),
+    table,
+    el('p', { style: 'margin-top:10px', text: `🍺 ${names} ${losers.length > 1 ? 'drinken' : 'drinkt'} een slok!` }),
+  ], [{ label: 'Volgende ronde', cls: 'primary', value: true }]);
+
+  state.starter = losers[0];
+  state.round++;
+  startRound();
+}
+
+/* ---------- Init ---------- */
+renderSetup(loadNames());
+</script>
+</body>
+</html>
