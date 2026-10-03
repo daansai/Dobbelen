@@ -144,6 +144,7 @@
 
     <div class="panel">
       <div id="scoreboard" class="scoreboard"></div>
+      <div id="hundredBar" class="muted" style="margin-top:8px" hidden></div>
     </div>
 
     <div class="panel turn">
@@ -348,6 +349,10 @@ function renderScoreboard() {
     chip.append(`${state.hundred === i ? '💯 ' : ''}${p.name} `, el('b', { text: String(p.drinks) }));
     box.append(chip);
   });
+  // The 100 man stays until someone else throws double 1, or the whole game is stopped.
+  const bar = $('hundredBar');
+  bar.hidden = state.hundred === null;
+  if (state.hundred !== null) bar.textContent = `💯 100 man: ${state.players[state.hundred].name}`;
 }
 function renderLog() {
   $('log').replaceChildren(...state.log.map(t => el('li', { text: t })));
